@@ -1,166 +1,94 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"flag"
 	"fmt"
-	"time"
-
 	"log"
+	"sync"
 
+	"github.com/solana-labs/go-solana/rpc"
+	"github.com/solana-labs/go-solana/types"
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
-
-	gorpc "github.com/libp2p/go-libp2p-gorpc"
-
-	multiaddr "github.com/multiformats/go-multiaddr"
+	"github.com/libp2p/go-libp2p-core/host"
+	"github.com/multiformats/go-multiaddr"
 )
 
-type PingArgs struct {
-	Data []byte
-}
-type PingReply struct {
-	Data []byte
-}
-type PingService struct{}
-
-func (t *PingService) Ping(ctx context.Context, argType PingArgs, replyType *PingReply) error {
-	log.Println("Received a Ping call")
-	replyType.Data = argType.Data
-	return nil
-}
-
-func createPeer(listenAddr string) host.Host {
-	// Create a new libp2p host
-	h, err := libp2p.New(libp2p.ListenAddrStrings(listenAddr))
-	if err != nil {
-		panic(err)
-	}
-	return h
-}
-
-var protocolID = protocol.ID("/p2p/rpc/ping")
-
-func startServer() {
-	log.Println("Launching host")
-	host := createPeer("/ip4/0.0.0.0/tcp/9000")
-
-	log.Printf("Hello World, my hosts ID is %s\n", host.ID().Pretty())
-	for _, addr := range host.Addrs() {
-		ipfsAddr, err := multiaddr.NewMultiaddr("/ipfs/" + host.ID().Pretty())
-		if err != nil {
-			panic(err)
-		}
-		peerAddr := addr.Encapsulate(ipfsAddr)
-		log.Printf("I'm listening on %s\n", peerAddr)
-	}
-
-	rpcHost := gorpc.NewServer(host, protocolID)
-
-	svc := PingService{}
-	err := rpcHost.Register(&svc)
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println("Done")
-
-	for {
-		time.Sleep(time.Second * 1)
-	}
-}
-
-func startClient(host string, pingCount, randomDataSize int) {
-	fmt.Println("Launching client")
-	client := createPeer("/ip4/0.0.0.0/tcp/9001")
-	fmt.Printf("Hello World, my hosts ID is %s\n", client.ID().Pretty())
-	ma, err := multiaddr.NewMultiaddr(host)
-	if err != nil {
-		panic(err)
-	}
-	peerInfo, err := peer.AddrInfoFromP2pAddr(ma)
-	if err != nil {
-		panic(err)
-	}
-	ctx := context.Background()
-	err = client.Connect(ctx, *peerInfo)
-	if err != nil {
-		panic(err)
-	}
-	rpcClient := gorpc.NewClient(client, protocolID)
-	numCalls := 0
-	durations := []time.Duration{}
-	betweenPingsSleep := time.Second * 1
-
-	for numCalls < pingCount {
-		var reply PingReply
-		var args PingArgs
-
-		c := randomDataSize
-		b := make([]byte, c)
-		_, err := rand.Read(b)
-		if err != nil {
-			panic(err)
-		}
-
-		args.Data = b
-
-		time.Sleep(betweenPingsSleep)
-		startTime := time.Now()
-		err = rpcClient.Call(peerInfo.ID, "PingService", "Ping", args, &reply)
-		if err != nil {
-			panic(err)
-		}
-		if !bytes.Equal(reply.Data, b) {
-			panic("Received wrong amount of bytes back!")
-		}
-		endTime := time.Now()
-		diff := endTime.Sub(startTime)
-		fmt.Printf("%d bytes from %s (%s): seq=%d time=%s\n", c, peerInfo.ID.String(), peerInfo.Addrs[0].String(), numCalls+1, diff)
-		numCalls += 1
-		durations = append(durations, diff)
-	}
-
-	totalDuration := int64(0)
-	for _, dur := range durations {
-		totalDuration = totalDuration + dur.Nanoseconds()
-	}
-	averageDuration := totalDuration / int64(len(durations))
-	fmt.Printf("Average duration for ping reply: %s\n", time.Duration(averageDuration))
-
-}
-
 func main() {
+	// Initialize Solana RPC client
+	rpcClient := rpc.New("https://api.mainnet-beta.solana.com")
 
-	var mode string
-	var host string
-	var count int
-	var size int
-	flag.StringVar(&mode, "mode", "", "host or client mode")
-	flag.StringVar(&host, "host", "", "address of host to connect to")
-	flag.IntVar(&count, "count", 10, "number of pings to make")
-	flag.IntVar(&size, "size", 64, "size of random data in ping message")
-	flag.Parse()
-
-	if mode == "" {
-		log.Fatal("You need to specify '-mode' to be either 'host' or 'client'")
+	// Initialize Libp2p host
+	ctx := context.Background()
+	host, err := libp2p.New(ctx)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	if mode == "host" {
-		startServer()
-		return
+	// Get the Libp2p multiaddress to share with the hardware wallet
+	listenAddr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", 9000))
+	if err != nil {
+		log.Fatal(err)
 	}
-	if mode == "client" {
-		if host == "" {
-			log.Fatal("You need to specify '-host' when running as a client")
-		}
-		startClient(host, count, size)
-		return
-	}
-	log.Fatal("Mode '" + mode + "' not recognized. It has to be either 'host' or 'client'")
+	host.Addrs = append(host.Addrs, listenAddr)
 
+	// Launch a Goroutine to handle incoming connections
+	go handleIncomingConnections(ctx, host, rpcClient)
+
+	// Replace this with your hardware wallet integration logic
+	// Load the private key securely from the hardware wallet
+	// For this example, we'll use a local keypair for simplicity
+	localKeyPair := types.NewKeypair()
+
+	fmt.Printf("Your wallet address: %s\n", localKeyPair.PublicKey)
+
+	// Simulate sending a transaction to the hardware wallet for signing
+	transactionToSign := createSampleTransaction(localKeyPair.PublicKey)
+
+	// Send the transaction to the hardware wallet for signing via Libp2p
+	signTransactionUsingLibp2p(ctx, host, transactionToSign)
 }
+
+func createSampleTransaction(senderPublicKey types.PublicKey) *types.Transaction {
+	// Create a sample transaction to send SOL to another address
+	// Replace with your actual transaction logic
+	to := senderPublicKey // Replace with the recipient's address
+	amount := uint64(100) // Amount to send in lamports (1 SOL = 1,000,000,000 lamports)
+
+	// Create a new transaction
+	tx, err := types.NewTransaction(
+		types.NewTxHeader(0, types.TransactionType, senderPublicKey),
+		types.NewTransferInstruction(senderPublicKey, to, amount),
+	)
+	if err != nil {
+		log.Fatalf("Failed to create transaction: %v", err)
+	}
+
+	return tx
+}
+
+func handleIncomingConnections(ctx context.Context, host host.Host, rpcClient *rpc.Client) {
+	fmt.Println("Listening for incoming connections...")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			// Accept incoming connections and handle transaction signing requests
+			// Replace with your own logic for handling incoming connections
+		}
+	}
+}
+
+func signTransactionUsingLibp2p(ctx context.Context, host host.Host, tx *types.Transaction) {
+	// Replace with your own logic for sending the transaction to the hardware wallet
+	// and receiving the signed transaction over Libp2p
+
+	// Example:
+	// - Connect to the hardware wallet node via Libp2p
+	// - Send the transaction to the hardware wallet
+	// - Receive the signed transaction from the hardware wallet
+	// - Submit the signed transaction to the Solana network using the RPC client
+}
+
+// Additional functions and logic will be needed to handle private key management,
+// secure communication, error handling, and more.
