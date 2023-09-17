@@ -1,157 +1,28 @@
-# p2p
-P2P project using libp2p 
+# why use libp2p, how does sending the Solana work here
 
 
-# go-libp2p-gorpc ping example - from https://github.com/libp2p/go-libp2p-gorpc/blob/master/examples/ping/readme.md
+Using Libp2p in a Solana wallet application can provide several benefits, primarily related to peer-to-peer networking and secure communication. Here's why you might consider using Libp2p and how sending Solana works in such a setup:
 
-Quick example how to build a ping service with go-libp2p-gorpc
+1. **Peer-to-Peer Networking**: Libp2p is a modular networking library that simplifies the development of peer-to-peer (P2P) applications. When building a Solana wallet, you may want to enable direct P2P communication between wallet instances. For example, you might want to send Solana tokens directly to a friend without relying solely on a centralized server. Libp2p can help establish these P2P connections.
 
-This example has two parts, the `host` and the `client`. You can switch between
-them with the `-mode` flag that accepts either `host` or `client` as value.
+2. **Resilience and Decentralization**: Libp2p allows your Solana wallet to connect to other wallets directly, even without a central server. This makes the wallet more resilient and less dependent on centralized infrastructure. It's especially useful in a decentralized blockchain ecosystem like Solana, where users may want to interact directly with each other.
 
-## Usage
+3. **Security**: Libp2p provides security features such as encryption, authentication, and peer discovery. This ensures that communication between wallets is private and secure. In the context of a Solana wallet, security is of utmost importance because you're dealing with valuable assets.
 
-Have two terminal windows open in the `examples/ping` directory. In the first
-one, run:
+Now, let's explain how sending Solana works in a simplified Libp2p-enabled Solana wallet:
 
-```
-$ go run main.go -mode host
-```
+1. **Wallet Initialization**: When you set up your Solana wallet, you create a unique Solana account. This account contains your Solana tokens and is associated with a public key and a private key. The private key should be stored securely, and it's used for signing transactions.
 
-And then copy one of the "I'm listening on" addresses. In this example, we use
-the `127.0.0.1` one which ends up being:
+2. **Peer Discovery**: Your Solana wallet uses Libp2p to discover other wallets on the network. Libp2p helps find the addresses of other wallet users who want to send or receive Solana tokens.
 
-```
-/ip4/127.0.0.1/tcp/9000/ipfs/QmTwhWUFdY8NvhmLxE9CzPm29zC9bzfoMGAz2SFV5cb26d
-```
+3. **Creating a Transaction**: Let's say you want to send Solana tokens to a friend. You construct a Solana transaction within your wallet, specifying the recipient's public key and the amount of Solana you want to send.
 
-Now in the second terminal window, run:
+4. **Signing the Transaction**: Here's where your private key comes into play. Your wallet uses your private key to sign the transaction. This signature is essential because it proves that you are the rightful owner of the tokens and authorizes the transaction.
 
-```
-$ go run main.go -mode client -host /ip4/127.0.0.1/tcp/9000/ipfs/QmTwhWUFdY8NvhmLxE9CzPm29zC9bzfoMGAz2SFV5cb26d
-```
+5. **Sending the Transaction via Libp2p**: Your wallet uses Libp2p to send the signed transaction to your friend's wallet directly. Libp2p ensures that this communication is secure and private.
 
-And you should start seeing log messages showing the duration of each ping, and
-finally a average of 10 pings.
+6. **Receiving and Verifying**: Your friend's wallet receives the transaction via Libp2p. They can verify the transaction's signature using your public key to make sure it's really from you and that you have authorized the transfer.
 
-```
-2018/06/10 12:52:44 Launching client
-2018/06/10 12:52:44 Hello World, my hosts ID is Qmapkii8GMB2fMUT66yds9surJUdsZHMtygFSFhPnHa14K
-64 bytes from <peer.ID UGZS55> (/ip4/127.0.0.1/tcp/9000): seq=1 time=1.404259ms
-64 bytes from <peer.ID UGZS55> (/ip4/127.0.0.1/tcp/9000): seq=2 time=1.338412ms
-64 bytes from <peer.ID UGZS55> (/ip4/127.0.0.1/tcp/9000): seq=3 time=892.567µs
-64 bytes from <peer.ID UGZS55> (/ip4/127.0.0.1/tcp/9000): seq=4 time=505.573µs
-64 bytes from <peer.ID UGZS55> (/ip4/127.0.0.1/tcp/9000): seq=5 time=565.036µs
-64 bytes from <peer.ID UGZS55> (/ip4/127.0.0.1/tcp/9000): seq=6 time=765.652µs
-64 bytes from <peer.ID UGZS55> (/ip4/127.0.0.1/tcp/9000): seq=7 time=1.296701ms
-64 bytes from <peer.ID UGZS55> (/ip4/127.0.0.1/tcp/9000): seq=8 time=804.552µs
-64 bytes from <peer.ID UGZS55> (/ip4/127.0.0.1/tcp/9000): seq=9 time=733.054µs
-64 bytes from <peer.ID UGZS55> (/ip4/127.0.0.1/tcp/9000): seq=10 time=688.807µs
-Average duration for ping reply: 899.461µs
-```
+7. **Transaction Confirmation**: If everything checks out, your friend's wallet broadcasts the transaction to the Solana network, where it gets confirmed by Solana validators. Once confirmed, the Solana tokens are transferred from your wallet to your friend's wallet.
 
-## Explanation
-
-Here is some of the important code snippets from this example. Keep in mind
-that some information here is hard-coded and error-handling is omitted for brevity
-and is not a example of production-ready code. To see a more real version of
-this code, please check the `ping.go` file inside this directory.
-
-### Host
-
-First we create our libp2p host:
-
-```golang
-host, _ := libp2p.New(ctx, libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/9000"))
-```
-
-After that, we create our gorpc host that will received calls
-
-```golang
-rpcHost := gorpc.NewServer(host, protocol.ID("/p2p/rpc/ping"))
-```
-
-Now, we need to have three structs and one method to be able to respond to the
-RPC calls from the client. The arguments and the reply only has one argument,
-`Data` which is being sent from the client, and replied back in the response.
-
-```golang
-type PingArgs struct {
-	Data []byte
-}
-type PingReply struct {
-	Data []byte
-}
-type PingService struct{}
-
-func (t *PingService) Ping(argType PingArgs, replyType *PingReply) error {
-	replyType.Data = argType.Data
-	return nil
-}
-```
-
-Once we have those defined, we can register our PingService with the RPCHost
-
-```golang
-svc := PingService{}
-rpcHost.Register(&svc)
-```
-
-Now our host is ready to reply to pings from the client.
-
-### Client
-
-Again, let's first create our libp2p peer
-
-```golang
-client, _ := libp2p.New(ctx, libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/9001"))
-```
-
-Now we need to first connect to the host that we created before.
-
-```golang
-host := "/ip4/127.0.0.1/tcp/9000/ipfs/QmUGZS556mhYSSrFGJpxtt33QQuRDjhsYvFNCW1V3A4wjL"
-ma, _ := multiaddr.NewMultiaddr(host)
-peerInfo, _ := peerstore.InfoFromP2pAddr(ma)
-ctx := context.Background()
-client.Connect(ctx, *peerInfo)
-```
-
-And now we can create our gorpc client with the newly created libp2p client
-
-```golang
-rpcClient := gorpc.NewClient(client, protocol.ID("/p2p/rpc/ping"))
-```
-
-Then we can start making our rpc call. We start by defining our reply and arguments
-
-```golang
-var reply PingReply
-var args PingArgs
-```
-
-To make sure that we actually make the call correct, we add some random data
-in the arguments so we can check it when we get the reply.
-
-```golang
-c := 64
-b := make([]byte, c)
-rand.Read(b)
-args.Data = b
-```
-
-Now we can finally make the call itself! Keep in mind this is a blocking call,
-and it'll fill out `reply` for you.
-
-```golang
-rpcClient.Call(peerInfo.ID, "PingService", "Ping", args, &reply)
-```
-
-Once the call above has finished, `reply.Data` should now have the same data
-as we had before
-
-```golang
-if bytes.Equal(reply.Data, b) {
-  fmt.Println("Got the same bytes back as we sent!")
-}
-```
+So, in summary, Libp2p enhances the Solana wallet by facilitating secure peer-to-peer communication. It helps you discover other wallet users, send signed Solana transactions directly to them, and maintain a decentralized and secure interaction within the Solana network. The actual implementation details can be more complex and involve additional features like error handling and network management.
